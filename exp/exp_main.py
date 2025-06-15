@@ -123,7 +123,7 @@ class Exp_Main(Exp_Basic):
         total_loss = np.average(total_loss)
         self.model.train()
         return total_loss
-
+    
     def get_single_prediction_time(self, test_loader):
         """
         计算单次预测的时间
@@ -308,6 +308,65 @@ class Exp_Main(Exp_Basic):
         return time_stamps
 
     def test(self, setting, test=0):
+        test_data, test_loader = self._get_data(flag="test")
+
+        print("loading model")
+        model_save_path = os.path.join(
+            self.args.checkpoints,
+            str(self.args.spot_id),
+            str(self.args.seq_len)+"_"+str(self.args.pred_len),  # 确保 seq_len 是字符串类型
+            str(self.args.mode),
+            setting,
+        )
+        self.model.load_state_dict(
+            torch.load(os.path.join(model_save_path, "checkpoint.pth"))
+        )
+        criterion = PearsonMSELoss(lambda_pearson=0.4)
+        losses = []
+
+        self.model.eval()
+        with torch.no_grad():
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(
+                test_loader
+            ):
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float().to(self.device)
+
+                batch_x_mark = batch_x_mark.float().to(self.device)
+                batch_y_mark = batch_y_mark.float().to(self.device)
+
+                # decoder input
+                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len :, :]).float()
+                dec_inp = (
+                    torch.cat([batch_y[:, : self.args.label_len, :], dec_inp], dim=1)
+                    .float()
+                    .to(self.device)
+                )
+                # encoder - decoder
+                if self.args.use_amp:
+                    with torch.cuda.amp.autocast():
+                        outputs = self.model(
+                            batch_x, batch_x_mark, dec_inp, batch_y_mark
+                        )
+                else:
+                    outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+
+                f_dim = -1 if self.args.features == "MS" else 0
+                outputs = outputs[:, -self.args.pred_len :, f_dim:]
+                batch_y = batch_y[:, -self.args.pred_len :, f_dim:].to(self.device)
+                outputs = outputs.detach().cpu().numpy()
+                batch_y = batch_y.detach().cpu().numpy()
+
+                pred = outputs  # outputs.detach().cpu().numpy()  # .squeeze()
+                true = batch_y  # batch_y.detach().cpu().numpy()  # .squeeze()
+
+                loss = criterion(torch.tensor(pred), torch.tensor(true))
+                losses.append([loss.item()] + [np.NaN] * (self.args.pred_len - 1))
+        # 取平均值
+        totla_loss = np.average(losses)
+        return totla_loss
+    
+    def test_save_res(self, setting, test=0):
         test_data, test_loader = self._get_data(flag="test")
 
         print("loading model")

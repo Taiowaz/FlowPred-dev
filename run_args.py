@@ -3,9 +3,21 @@ from exp.exp_main import Exp_Main
 import random
 import numpy as np
 from utils.config import get_args
+from skopt import gp_minimize
+from skopt.space import Categorical
 
-def main():
+def objective(params):
+    dynamic_dim, hidden_dim, hidden_layers, num_blocks, alpha = params
     args = get_args()
+
+    args.root_path = "data/pred_6h_args/ogn/24/288_72/mode_0"
+    args.mode = 0
+    # 设置超参数
+    args.dynamic_dim = dynamic_dim
+    args.hidden_dim = hidden_dim
+    args.hidden_layers = hidden_layers
+    args.num_blocks = num_blocks
+    args.alpha = alpha
 
     args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
 
@@ -23,14 +35,11 @@ def main():
         else:
             torch.cuda.set_device(args.gpu)
 
-    print("Args in experiment:")
-    print(args)
-
     Exp = Exp_Main
+    metric = float('inf')
 
     if args.is_training:
         for ii in range(args.itr):
-            # setting record of experiments
             setting = "{}_{}_{}_ft{}_sl{}_pl{}_segl{}_dyna{}_h{}_l{}_nb{}_a{}_{}_{}".format(
                 args.model_id,
                 args.model,
@@ -48,47 +57,36 @@ def main():
                 ii,
             )
 
-            exp = Exp(args)  # set experiments
+            exp = Exp(args)
             print(">>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>".format(setting))
             exp.train(setting)
-
-            # print(">>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<".format(setting))
-            # exp.test(setting)
-
-            # if args.do_predict:
-            #     print(
-            #         ">>>>>>>predicting : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<".format(
-            #             setting
-            #         )
-            #     )
-            #     exp.predict(setting, True)
-
+            # 假设 exp.test 返回一个评估指标，如损失值
+            metric = exp.test(setting)
             torch.cuda.empty_cache()
-    else:
-        ii = 0
-        setting = "{}_{}_{}_ft{}_sl{}_pl{}_segl{}_dyna{}_h{}_l{}_nb{}_a{}_{}_{}".format(
-            args.model_id,
-            args.model,
-            args.data,
-            args.features,
-            args.seq_len,
-            args.pred_len,
-            args.seg_len,
-            args.dynamic_dim,
-            args.hidden_dim,
-            args.hidden_layers,
-            args.num_blocks,
-            args.alpha,
-            args.des,
-            ii,
-        )
+    return metric
 
-        exp = Exp(args)  # set experiments
-        print(">>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<".format(setting))
-        exp.test(setting, test=1)
-        torch.cuda.empty_cache()
-        # 输出测试完毕的信息
-        print("Testing completed.")
+def main():
+    # 定义超参数搜索空间，使用 Categorical 类设置可选参数
+    space = [
+        Categorical([64, 128, 256, 512], name='dynamic_dim'),
+        Categorical([32, 64, 128, 256], name='hidden_dim'),
+        Categorical([1, 2, 3, 4], name='hidden_layers'),
+        Categorical([2, 3, 4, 5], name='num_blocks'),
+        Categorical([0.1, 0.2, 0.3, 0.4], name='alpha')
+    ]
+
+    result = gp_minimize(objective, space, n_calls=10)
+    best_params = {
+        "dynamic_dim": result.x[0],
+        "hidden_dim": result.x[1],
+        "hidden_layers": result.x[2],
+        "num_blocks": result.x[3],
+        "alpha": result.x[4]
+    }
+    best_metric = result.fun
+
+    print("Best hyperparameters:", best_params)
+    print("Best metric:", best_metric)
 
 if __name__ == "__main__":
     main()
