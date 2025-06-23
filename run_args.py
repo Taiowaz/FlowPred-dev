@@ -10,8 +10,8 @@ def objective(params):
     dynamic_dim, hidden_dim, hidden_layers, num_blocks, alpha = params
     args = get_args()
 
-    args.root_path = "data/pred_6h_args/ogn/24/288_72/mode_0"
-    args.mode = 0
+    args.root_path = "data/pred_6h_args/ogn/24/288_72/mode_1"
+    args.mode = 1
     # 设置超参数
     args.dynamic_dim = dynamic_dim
     args.hidden_dim = hidden_dim
@@ -36,7 +36,7 @@ def objective(params):
             torch.cuda.set_device(args.gpu)
 
     Exp = Exp_Main
-    metric = float('inf')
+    valid_metrics = []
 
     if args.is_training:
         for ii in range(args.itr):
@@ -62,8 +62,18 @@ def objective(params):
             exp.train(setting)
             # 假设 exp.test 返回一个评估指标，如损失值
             metric = exp.test(setting)
+            print(f"Metric for setting {setting}: {metric}")  # 添加日志输出
+            # 检查是否为有效指标
+            if not np.isnan(metric) and not np.isinf(metric):
+                valid_metrics.append(metric)
+            else:
+                print(f"Warning: Invalid metric encountered for setting {setting}. Skipping this result.")
             torch.cuda.empty_cache()
-    return metric
+    
+    if valid_metrics:
+        return np.mean(valid_metrics)
+    else:
+        return np.finfo(float).max
 
 def main():
     # 定义超参数搜索空间，使用 Categorical 类设置可选参数

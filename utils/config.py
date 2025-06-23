@@ -11,7 +11,7 @@ def get_args():
 
     # basic config
     parser.add_argument("--is_training", type=int, default=1, help="status")
-    parser.add_argument("--model_id", type=str, default="Flow_288_24", help="model id")
+    parser.add_argument("--model_id", type=str, default="Flow_Koopa", help="model id")
     parser.add_argument(
         "--model",
         type=str,

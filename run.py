@@ -85,7 +85,7 @@ def main():
 
         exp = Exp(args)  # set experiments
         print(">>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<".format(setting))
-        exp.test(setting, test=1)
+        exp.test_save_res(setting, test=1)
         torch.cuda.empty_cache()
         # 输出测试完毕的信息
         print("Testing completed.")
