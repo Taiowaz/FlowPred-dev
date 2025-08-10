@@ -1,0 +1,1 @@
+nohup bash scripts/pred6h_lanuch.sh > log/pred6h_lanuch/0-main_launcher.log 2>&1 &

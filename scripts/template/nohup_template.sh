@@ -1,0 +1,1 @@
+nohup bash scripts/template/template.sh > train.log 2>&1 &
