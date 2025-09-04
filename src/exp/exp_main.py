@@ -13,15 +13,12 @@ from src.data_provider.data_factory import data_provider
 from src.exp.exp_basic import Exp_Basic
 from src.models import Koopa
 from src.utils.tools import EarlyStopping, adjust_learning_rate, visual
-from src.Loss.PearsonMSELoss import PearsonMSELoss
 
 
 
 class Exp_Main(Exp_Basic):
     def __init__(self, args):
-        super(Exp_Main, self).__init__(args)
-        self.args.label_len = self.args.pred_hour
-        
+        super(Exp_Main, self).__init__(args)        
 
     def _get_mask_spectrum(self):
         """
@@ -42,7 +39,7 @@ class Exp_Main(Exp_Basic):
         }
         mask_spectrum_dir = os.path.join(
             self.args.mask_spectrum_dir,
-            f"his{str(self.args.his_hour)}h_pred{str(self.args.pred_hour)}h", 
+            f"his{str(self.args.his_hour)}h-pred{str(self.args.pred_hour)}h", 
             str(self.args.spot_id),# 确保 seq_len 是字符串类型
             f"mode{str(self.args.mode)}",
         )
@@ -61,10 +58,8 @@ class Exp_Main(Exp_Basic):
                 mask_spectrum = np.load(f"{mask_spectrum_dir}/mask.npy")
                 self.args.mask_spectrum = torch.from_numpy(mask_spectrum).to(self.device)
             else:
-                raise FileNotFoundError(f"Mask spectrum file not found at {self.args.mask_spectrum_load_path}")
-
+                raise FileNotFoundError(f"Mask spectrum file not found at {self.args.mask_spectrum}")
         model = model_dict[self.args.model].Model(self.args).float()
-
         if self.args.use_multi_gpu and self.args.use_gpu:
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
         return model
@@ -79,7 +74,6 @@ class Exp_Main(Exp_Basic):
         return model_optim
 
     def _select_criterion(self):
-        # criterion = PearsonMSELoss(lambda_pearson=0.4)
         criterion = nn.MSELoss() 
         return criterion
 
@@ -162,7 +156,7 @@ class Exp_Main(Exp_Basic):
         # 定义模型保存路径
         model_save_path = os.path.join(
             self.args.checkpoints,
-            f"his{str(self.args.his_hour)}h_pred{str(self.args.pred_hour)}h", 
+            f"his{str(self.args.his_hour)}h-pred{str(self.args.pred_hour)}h", 
             str(self.args.spot_id),
             f"mode{str(self.args.mode)}",
         )
@@ -312,14 +306,14 @@ class Exp_Main(Exp_Basic):
         print("loading model")
         model_save_path = os.path.join(
             self.args.checkpoints,
-            f"his{str(self.args.his_hour)}h_pred{str(self.args.pred_hour)}h", 
+            f"his{str(self.args.his_hour)}h-pred{str(self.args.pred_hour)}h", 
             str(self.args.spot_id),
             f"mode{str(self.args.mode)}",
         )
         self.model.load_state_dict(
             torch.load(os.path.join(model_save_path, "checkpoint.pth"))
         )
-        criterion = PearsonMSELoss(lambda_pearson=0.4)
+        criterion = self._select_criterion()
         losses = []
 
         self.model.eval()
@@ -358,7 +352,7 @@ class Exp_Main(Exp_Basic):
                 pred = outputs  # outputs.detach().cpu().numpy()  # .squeeze()
                 true = batch_y  # batch_y.detach().cpu().numpy()  # .squeeze()
 
-                loss = criterion(torch.tensor(pred), torch.tensor(true))
+                loss = criterion(pred, true)
                 losses.append([loss.item()] + [np.NaN] * (self.args.pred_len - 1))
         # 取平均值
         totla_loss = np.average(losses)
@@ -370,14 +364,14 @@ class Exp_Main(Exp_Basic):
         print("loading model")
         model_save_path = os.path.join(
             self.args.checkpoints,
-            f"his{str(self.args.his_hour)}h_pred{str(self.args.pred_hour)}h", 
+            f"his{str(self.args.his_hour)}h-pred{str(self.args.pred_hour)}h", 
             str(self.args.spot_id),
             f"mode{str(self.args.mode)}",
         )
         self.model.load_state_dict(
             torch.load(os.path.join(model_save_path, "checkpoint.pth"))
         )
-        criterion = PearsonMSELoss(lambda_pearson=0.4)
+        criterion = self._select_criterion()
 
         preds = []
         trues = []
@@ -484,13 +478,12 @@ class Exp_Main(Exp_Basic):
         _, pred_loader = data_provider(self.args, df_raw = df_raw,flag="pred")
         model_load_dir = os.path.join(
             self.args.checkpoints,
-            f"his{str(self.args.his_hour)}h_pred{str(self.args.pred_hour)}h", 
+            f"his{str(self.args.his_hour)}h-pred{str(self.args.pred_hour)}h", 
             str(self.args.spot_id),
             f"mode{str(self.args.mode)}",
         )
         model_path = model_load_dir + "/" + "checkpoint.pth"
-        print("loading model")
-        print(model_path)
+        print("loading model: ",model_path)
         self.model.load_state_dict(torch.load(model_path))
 
         preds = []

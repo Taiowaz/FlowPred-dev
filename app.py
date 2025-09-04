@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Add project root to Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from pred.pred import predict
+from src.pred.pred import predict
 
 app = Flask(__name__)
 
@@ -50,11 +50,10 @@ def flow_predict():
 
         # Perform prediction
         try:
-            his_len = input_json.get('his_len', 288)  # Default to 24 if not provided
-            pred_len = input_json.get('pred_len', 24)  # Default to 24 if not provided
+            his_hour = input_json.get('his_hour', 24)  # Default to 24 if not provided
+            pred_hour = input_json.get('pred_hour', 6)  # Default to 24 if not provided
             spot_id = input_json.get('spot_id', -1)  # Get spot_id from the first row
-            freq = input_json.get('freq', 5)  # Default to 5 minutes if not provided
-            output_df = predict(spot_id,his_len, pred_len, freq, input_df)
+            output_df = predict(spot_id,his_hour, pred_hour, input_df)
             output_json = output_df.to_dict(orient='records')
             return jsonify(output_json)
         except Exception as e:

@@ -1,1 +1,0 @@
-nohup bash scripts/mse_loss/mse_loss.sh > train.log 2>&1 &

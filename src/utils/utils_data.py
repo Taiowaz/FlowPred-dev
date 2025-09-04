@@ -1,5 +1,4 @@
 from datetime import datetime
-from matplotlib import table
 import torch.nn as nn
 import numpy as np
 import pandas as pd
@@ -8,14 +7,7 @@ from tqdm import tqdm
 from multiprocessing import Process
 import holidays
 from datetime import time
-import os
-import matplotlib.pyplot as plt
 import pandas as pd
-import ipywidgets as widgets
-from IPython.display import display, clear_output
-import pymysql
-import csv
-from src.Loss.PearsonMSELoss import pearson_mse_loss_xgb_test
 
 
 def fill_missing_value(data_time_groups, spots):
@@ -588,432 +580,16 @@ def find_missing_time_slices(df, time_slice):
     return missing_dict
 
 
-def interactive_plot_comparison(group_labels, loss_list, *grouped_datasets):
+
+def preprocess_for_koopman_30s_moderate(df, spot_id=14207):
     """
-    创建一个交互式绘图，用于比较多个数据集中的真实值和预测值。
-
-    参数:
-        group_labels (list): 一个标签列表，对应每个分组数据集的标签。
-        *grouped_datasets (tuple): 可变数量的分组数据集，每个数据集包含日期和数据。
-
-    异常:
-        ValueError: 如果 group_labels 的长度与 grouped_datasets 的数量不匹配。
-    """
-
-    # 检查 group_labels 的长度是否与 grouped_datasets 的数量一致
-    if len(group_labels) != len(grouped_datasets):
-        raise ValueError("group_labels 的长度必须与 grouped_datasets 的数量匹配。")
-
-    # 当前显示的索引
-    current_index = 0
-
-    # 创建按钮和输入框
-    prev_button = widgets.Button(description="上一个")
-    next_button = widgets.Button(description="下一个")
-    date_input = widgets.Text(placeholder="输入日期 (YYYY-MM-DD)")
-    go_button = widgets.Button(description="跳转")
-
-    # 水平显示按钮和输入框
-    button_box = widgets.HBox([prev_button, next_button, date_input, go_button])
-
-    def plot_comparison(index):
-        """
-        绘制指定索引处的真实值和预测值的比较图表。
-
-        参数:
-            index (int): 要绘制的数据的索引。
-        """
-        # 使用外层函数的 current_index 变量
-        nonlocal current_index
-        # 更新当前索引
-        current_index = index
-
-        # 创建一个新的图形，设置图形大小
-        plt.figure(figsize=(30, 8))  # 调整图像大小
-
-        # 从第一个数据集中获取当前日期和数据
-        date, group = grouped_datasets[0][index]
-        # 将数据中的时间列转换为 datetime 类型
-        times = pd.to_datetime(group["time"].dt.time.astype(str))
-
-        # 绘制真实值曲线
-        plt.plot(times, group["real"], label="real", color="black", linewidth=2)
-
-        # 绘制每组的预测曲线
-        for i, grouped_data in enumerate(grouped_datasets):
-            _, group = grouped_data[index]
-            plt.plot(
-                times,
-                group["pred"],
-                label=group_labels[i] + " loss: " + str(loss_list[i][index]),
-            )
-
-        # 设置图例，显示每条曲线的标签
-        plt.legend()
-        # 设置图表标题为当前日期
-        plt.title(f"{date}")  # 标题改为日期
-
-        # 筛选出整点时刻的索引
-        hour_indices = [
-            i
-            for i, t in enumerate(times)
-            if t.time().minute == 0 and t.time().second == 0
-        ]
-        # 获取整点时刻的数据
-        hour_times = times.iloc[hour_indices]
-        # 将整点时刻格式化为字符串标签
-        hour_labels = [t.strftime("%H:%M:%S") for t in hour_times]
-        # 设置 x 轴刻度为整点时刻，并显示对应的标签
-        plt.xticks(hour_times, hour_labels)
-
-        # 清除之前的输出，并等待新的输出
-        clear_output(wait=True)
-        # 显示按钮和输入框
-        display(button_box)
-        # 显示图表
-        plt.show()
-
-        # 如果当前是第一个索引，禁用上一个按钮
-        prev_button.disabled = index == 0
-        # 如果当前是最后一个索引，禁用下一个按钮
-        next_button.disabled = index == len(grouped_datasets[0]) - 1
-
-    def prev_plot(b):
-        """
-        处理上一个按钮的点击事件。
-
-        参数:
-            b: 触发事件的按钮对象。
-        """
-        # 使用外层函数的 current_index 变量
-        nonlocal current_index
-        # 如果当前索引大于 0，将索引减 1
-        if current_index > 0:
-            current_index -= 1
-            # 绘制新索引对应的比较图表
-            plot_comparison(current_index)
-
-    def next_plot(b):
-        """
-        处理下一个按钮的点击事件。
-
-        参数:
-            b: 触发事件的按钮对象。
-        """
-        # 使用外层函数的 current_index 变量
-        nonlocal current_index
-        # 如果当前索引小于数据集的最大索引，将索引加 1
-        if current_index < len(grouped_datasets[0]) - 1:
-            current_index += 1
-            # 绘制新索引对应的比较图表
-            plot_comparison(current_index)
-
-    def go_to_date(b):
-        """
-        处理跳转按钮的点击事件，跳转到指定日期。
-
-        参数:
-            b: 触发事件的按钮对象。
-        """
-        # 使用外层函数的 current_index 变量
-        nonlocal current_index
-        # 获取输入框中的日期字符串
-        date_str = date_input.value
-        try:
-            # 将日期字符串转换为日期对象
-            target_date = pd.to_datetime(date_str).date()
-            # 遍历第一个数据集中的日期
-            for index, (date, _) in enumerate(grouped_datasets[0]):
-                if date == target_date:
-                    current_index = index
-                    # 绘制指定日期的比较图表
-                    plot_comparison(current_index)
-                    break
-            else:
-                # 如果未找到指定日期的数据，打印提示信息
-                print(f"未找到 {date_str} 的数据。")
-        except ValueError:
-            # 如果日期格式不正确，打印提示信息
-            print("日期格式不正确，请使用 YYYY-MM-DD。")
-
-    # 绑定按钮的点击事件到对应的处理函数
-    prev_button.on_click(prev_plot)
-    next_button.on_click(next_plot)
-    go_button.on_click(go_to_date)
-
-    # 显示初始图表
-    plot_comparison(current_index)
-
-
-DB_CONFIG = {
-    'host': "10.62.193.1",
-    'port': 3306,
-    'user': "xihuspot",
-    'password': "xihu#123",
-    'database': "flowpredicationsa", # <-- 需要导出数据的数据库名
-    'charset': 'utf8mb4', # 建议使用 utf8mb4 以支持各种字符
-    'cursorclass': pymysql.cursors.DictCursor # 使用 DictCursor 可以让每行数据都像字典一样，方便按列名访问
-}
-
-
-# 单独一张表的景点
-SPOT_ID_TABLE_MAP={
-    14207:"dahua_flow",
-    14208:"lingyin_passenger_flow",
-    14209:"dahua_musical_fountain_num",
-    14210:"hubin_realtime",
-    14211:"hubin_realtime_new",
-    14212:"north_peak_flow",
-    14213:"north_peak_holiday_flow",
-}
-
-TIME_COL_MAP = {
-    "mobile_signaling_tourists_num": "kpi_time",
-    "dahua_musical_fountain_num": "date_time",
-    "lingyin_passenger_flow": "date_time",
-    "dahua_flow": "date_time",
-    "north_peak_flow": "date_time",
-    "north_peak_holiday_flow": "date_time",
-    "hubin_realtime": "timestamp",
-    "hubin_realtime_new": "ts"
-}
-
-VALUE_COL_MAP = {
-    "mobile_signaling_tourists_num": "kpi_value",
-    "dahua_musical_fountain_num": "real_num",
-    "lingyin_passenger_flow": "real_time_num",
-    "dahua_flow": "num",
-    "north_peak_flow": "num",
-    "north_peak_holiday_flow": "num",
-    "hubin_realtime": "value",
-    "hubin_realtime_new": "value"
-}
-
-def save_csv_from_db(spot_id, s_time, e_time, output_csv_file):
-    """
-    从数据库中导出指定时间范围的数据到 CSV 文件。
-
-    :param spot_id: 景点ID，用于确定表名和筛选条件
-    :param s_time: 起始时间，字符串类型，格式为 'YYYY-MM-DD HH:MM:SS'
-    :param e_time: 结束时间，字符串类型，格式为 'YYYY-MM-DD HH:MM:SS'
-    :param output_csv_file: 输出的 CSV 文件路径
-    """
-    try:
-        # 连接数据库
-        connection = pymysql.connect(**DB_CONFIG)
-        print("数据库连接成功！")
-
-        table_name = SPOT_ID_TABLE_MAP.get(spot_id, "mobile_signaling_tourists_num")
-        time_col = TIME_COL_MAP.get(table_name, "kpi_time")
-        value_col = VALUE_COL_MAP.get(table_name, "kpi_value")
-        
-        with connection.cursor() as cursor:
-            # 根据表名决定是否需要添加 spot_id 筛选条件
-            if table_name == "mobile_signaling_tourists_num":
-                # 对于 mobile_signaling_tourists_num 表，需要添加 spot_id 筛选条件
-                if s_time and e_time:
-                    query = f"""
-                        SELECT {time_col} as kpi_time, {value_col} as kpi_value FROM {table_name}
-                        WHERE {time_col} BETWEEN %s AND %s AND spot_id = %s
-                        ORDER BY {time_col}
-                    """
-                    params = (s_time, e_time, spot_id)
-                    print(f"正在从表 '{table_name}' 中查询数据，景点ID: {spot_id}，时间范围: {s_time} 至 {e_time}...")
-                elif s_time:
-                    query = f"""
-                        SELECT {time_col} as kpi_time, {value_col} as kpi_value FROM {table_name}
-                        WHERE {time_col} >= %s AND spot_id = %s
-                        ORDER BY {time_col}
-                    """
-                    params = (s_time, spot_id)
-                    print(f"正在从表 '{table_name}' 中查询数据，景点ID: {spot_id}，起始时间: {s_time}...")
-                elif e_time:
-                    query = f"""
-                        SELECT {time_col} as kpi_time, {value_col} as kpi_value FROM {table_name}
-                        WHERE {time_col} <= %s AND spot_id = %s
-                        ORDER BY {time_col}
-                    """
-                    params = (e_time, spot_id)
-                    print(f"正在从表 '{table_name}' 中查询数据，景点ID: {spot_id}，结束时间: {e_time}...")
-                else:
-                    query = f"""
-                        SELECT {time_col} as kpi_time, {value_col} as kpi_value FROM {table_name}
-                        WHERE spot_id = %s
-                        ORDER BY {time_col}
-                    """
-                    params = (spot_id,)
-                    print(f"正在从表 '{table_name}' 中查询所有数据，景点ID: {spot_id}...")
-            else:
-                # 对于其他表，不需要 spot_id 筛选条件（因为这些表本身就是特定景点的专用表）
-                if s_time and e_time:
-                    query = f"""
-                        SELECT {time_col} as kpi_time, {value_col} as kpi_value FROM {table_name}
-                        WHERE {time_col} BETWEEN %s AND %s
-                        ORDER BY {time_col}
-                    """
-                    params = (s_time, e_time)
-                    print(f"正在从表 '{table_name}' 中查询数据，时间范围: {s_time} 至 {e_time}...")
-                elif s_time:
-                    query = f"""
-                        SELECT {time_col} as kpi_time, {value_col} as kpi_value FROM {table_name}
-                        WHERE {time_col} >= %s
-                        ORDER BY {time_col}
-                    """
-                    params = (s_time,)
-                    print(f"正在从表 '{table_name}' 中查询数据，起始时间: {s_time}...")
-                elif e_time:
-                    query = f"""
-                        SELECT {time_col} as kpi_time, {value_col} as kpi_value FROM {table_name}
-                        WHERE {time_col} <= %s
-                        ORDER BY {time_col}
-                    """
-                    params = (e_time,)
-                    print(f"正在从表 '{table_name}' 中查询数据，结束时间: {e_time}...")
-                else:
-                    query = f"""
-                        SELECT {time_col} as kpi_time, {value_col} as kpi_value FROM {table_name}
-                        ORDER BY {time_col}
-                    """
-                    params = ()
-                    print(f"正在从表 '{table_name}' 中查询所有数据...")
-
-            # 执行查询
-            cursor.execute(query, params)
-
-            # 获取所有数据
-            rows = cursor.fetchall()
-
-            if rows:
-                # 统一的表头
-                headers = ["spot_id", "kpi_time", "kpi_value"]
-                print(f"输出表头: {headers}")
-
-                # 打开 CSV 文件准备写入
-                with open(output_csv_file, 'w', newline='', encoding='utf-8-sig') as csvfile:
-                    writer = csv.writer(csvfile)
-
-                    # 写入表头
-                    writer.writerow(headers)
-                    print("CSV 文件表头已写入。")
-
-                    # 写入数据行，添加 spot_id 列
-                    for row in rows:
-                        writer.writerow([spot_id, row['kpi_time'], row['kpi_value']])
-
-                print(f"成功！筛选后的数据已导出到文件 '{output_csv_file}'，共 {len(rows)} 条记录。")
-            else:
-                print(f"表 '{table_name}' 中指定条件下没有数据。")
-
-    except pymysql.Error as err:
-        print(f"数据库操作失败: {err}")
-    except Exception as e:
-        print(f"发生未知错误: {e}")
-    finally:
-        # 关闭数据库连接
-        if 'connection' in locals() and connection.open:
-            connection.close()
-            print("数据库连接已关闭。")
-
-
-# 获取单个预测结果的预测处理
-def get_df_single_mode(res_path, prediction_selection="last", pred_len=72):
-    df = pd.read_csv(res_path)
-    df["time"] = pd.to_datetime(df["time"])
-    df.sort_values(by="time", inplace=True)
-    if prediction_selection == "last":
-        # 按时间分组，选取每组的最后一次预测
-        # df_temp = df.groupby("time").last().reset_index()
-        df_temp = df[(df.index+1) % pred_len == 0]
-    elif prediction_selection == "first":
-        # 按时间分组，选取每组的第一次预测
-        # df_temp = df.groupby("time").first().reset_index()
-        df_temp = df[(df.index) % pred_len == 0]
-    else:
-        assert prediction_selection in ["first", "last"], f"prediction_selection 必须是 'first' 或 'last'，但传入的值是 {prediction_selection}"
-    df_res = df_temp.sort_values(by="time")
-    return df_res
-
-# 获取多个预测结果路径，使用get_df_single_mode进行处理，最终融合成一个df
-def get_groups_merge_mutli_df_pred_res(*res_paths, prediction_selection="last", pred_len=72):
-    df_list = []
-    for res_path in res_paths:
-        # print(res_path)
-        df = get_df_single_mode(res_path, prediction_selection, pred_len)
-        df_list.append(df)
-    # 合并所有 DataFrame
-    df_merged = pd.concat(df_list, ignore_index=True)
-    df_merged = df_merged.drop_duplicates(subset='time')
-    df_merged = df_merged.sort_values(by='time')
-    groups_merged = list(df_merged.groupby(df_merged["time"].dt.date))
-    return groups_merged
-
-# 获得处理的分组
-def get_groups_single_mode(res_path, prediction_selection="last", pred_len=72):
-    df_res = get_df_single_mode(res_path, prediction_selection, pred_len)
-    groups_mode = list(df_res.groupby(df_res["time"].dt.date))
-    return groups_mode
-
-def view_res(res_path):
-    groups = get_groups_single_mode(res_path)
-    args = [groups]
-    loss_list = get_loss(*args)
-    group_labels = ["pred"]
-    interactive_plot_comparison(group_labels, loss_list, *args)
-def view_res_multi(*res_paths):
-    groups = get_groups_merge_mutli_df_pred_res(*res_paths)
-    args = [groups]
-    loss_list = get_loss(*args)
-    group_labels = ["pred"]
-    interactive_plot_comparison(group_labels, loss_list, *args)
-
-
-def get_groups(base_dir, dir_name, pred_len):
-    df_mode0 = pd.read_csv(f"{base_dir}/0/{dir_name}/result.csv")
-    df_mode1 = pd.read_csv(f"{base_dir}/1/{dir_name}/result.csv")
-    df_mode0["time"] = pd.to_datetime(df_mode0["time"])
-    df_mode1["time"] = pd.to_datetime(df_mode1["time"])
-    df_mode0.sort_values(by="time", inplace=True)
-    df_mode1.sort_values(by="time", inplace=True)
-    df_mode0_far = df_mode0[(df_mode0.index + 1) % pred_len == 0]
-    df_mode1_far = df_mode1[(df_mode1.index + 1) % pred_len == 0]
-    df_mode = pd.concat([df_mode0_far, df_mode1_far], ignore_index=True)
-    df_mode = df_mode.sort_values(by="time")
-    groups_mode = list(df_mode.groupby(df_mode["time"].dt.date))
-    return groups_mode
-
-
-def get_loss(*groups_mode):
-    loss_list = []
-    # 创建 MSE 损失函数
-    mse_loss = nn.MSELoss()
-    
-    # 对于每一个groups_mode, 计算loss
-    for groups in groups_mode:
-        loss_temp = []
-        for date, group in groups:
-            # 将数据转换为 torch tensor
-            pred_tensor = torch.tensor(group["pred"].values, dtype=torch.float32)
-            real_tensor = torch.tensor(group["real"].values, dtype=torch.float32)
-            
-            # 计算 MSE 损失
-            mse = mse_loss(pred_tensor, real_tensor)
-            # 计算 RMSE (对 MSE 开平方根)
-            rmse = torch.sqrt(mse)
-            loss_temp.append(rmse.item())  # 使用 .item() 获取标量值
-        loss_list.append(loss_temp)
-    return loss_list
-
-
-
-def preprocess_for_koopman_30s_enhanced(df, spot_id=14207):
-    """
-    增强版Koopman预处理，专门解决Mode0/Mode1的NaN问题
-    针对变异系数过高(1.052)和连续零值过长(120)的问题
+    温和版Koopman预处理 - 保持数据真实性
+    只处理明显的数据质量问题，避免过度处理
     """
     import numpy as np
     import pandas as pd
     
-    print(f"开始增强版Koopman预处理 - 景点{spot_id}")
+    print(f"开始温和版Koopman预处理 - 景点{spot_id}")
     print(f"原始数据形状: {df.shape}")
     
     # 原始统计
@@ -1028,32 +604,39 @@ def preprocess_for_koopman_30s_enhanced(df, spot_id=14207):
         'inf_count': np.isinf(df['kpi_value']).sum()
     }
     
-    print(f"原始问题检查:")
+    print(f"原始数据统计:")
     print(f"  变异系数: {original_stats['cv']:.3f}")
     print(f"  零值数量: {original_stats['zero_count']}")
     print(f"  数据范围: [{original_stats['min']:.1f}, {original_stats['max']:.1f}]")
     
-    # 1. 数值清理 - 最优先
-    def clean_numerical_issues(series):
-        """清理所有数值问题"""
-        print("  步骤1: 清理NaN和Inf...")
+    processed_values = df['kpi_value'].copy()
+    
+    # 1. 基础数值清理 - 只处理明显错误
+    def clean_basic_issues(series):
+        """只清理明显的数值错误"""
+        print("  步骤1: 基础数值清理...")
         
         series_clean = series.copy()
         
         # 处理无穷大和NaN
         if np.isinf(series_clean).any() or series_clean.isnull().any():
-            median_val = series_clean.median()
-            if pd.isna(median_val):
-                median_val = 50.0  # 使用合理的默认值
+            # 使用前后值插值，而不是简单的中位数填充
             series_clean = series_clean.replace([np.inf, -np.inf], np.nan)
-            series_clean = series_clean.fillna(median_val)
+            series_clean = series_clean.interpolate(method='linear')
+            
+            # 如果首尾有NaN，用最近的有效值填充
+            if series_clean.isnull().any():
+                series_clean = series_clean.fillna(method='bfill').fillna(method='ffill')
+                # 如果还有NaN，才使用中位数
+                if series_clean.isnull().any():
+                    series_clean = series_clean.fillna(series_clean.median())
         
         return series_clean
     
-    # 2. 强化的连续零值处理 - 关键修改
-    def handle_consecutive_zeros_enhanced(series, max_consecutive=15):  # 进一步降低到15
-        """增强版连续零值处理 - 更激进的处理"""
-        print("  步骤2: 激进连续零值处理...")
+    # 2. 温和的连续零值处理 - 提高阈值
+    def handle_consecutive_zeros_moderate(series, max_consecutive=60):  # 从15提高到60
+        """温和的连续零值处理 - 只处理异常长的零值段"""
+        print("  步骤2: 温和连续零值处理...")
         
         series = series.copy()
         zero_mask = (series == 0)
@@ -1068,235 +651,142 @@ def preprocess_for_koopman_30s_enhanced(df, spot_id=14207):
         for group_id in zero_changes[zero_mask].unique():
             group_mask = (zero_changes == group_id) & zero_mask
             
+            # 只处理异常长的连续零值
             if group_mask.sum() > max_consecutive:
-                # 获取连续零值段的位置
                 start_idx = group_mask.idxmax()
                 end_idx = group_mask[::-1].idxmax()
                 
-                # 更智能的前后值获取
-                context_size = 50  # 扩大上下文窗口
+                # 获取前后非零值
+                before_val = None
+                after_val = None
                 
-                # 前值：取前面非零值的加权平均
-                before_start = max(0, start_idx - context_size)
-                before_segment = series.iloc[before_start:start_idx]
-                before_nonzero = before_segment[before_segment > 0]
+                # 寻找前面的非零值
+                for i in range(start_idx - 1, max(0, start_idx - 50), -1):
+                    if series.iloc[i] > 0:
+                        before_val = series.iloc[i]
+                        break
                 
-                if len(before_nonzero) > 0:
-                    # 使用最近的几个值的加权平均
-                    weights = np.exp(-np.arange(len(before_nonzero)) * 0.1)  # 越近权重越大
-                    before_val = np.average(before_nonzero.iloc[-10:], weights=weights[-10:] if len(before_nonzero) >= 10 else weights[-len(before_nonzero):])
-                else:
-                    before_val = series[series > 0].mean() if (series > 0).any() else 30
+                # 寻找后面的非零值
+                for i in range(end_idx + 1, min(len(series), end_idx + 50)):
+                    if series.iloc[i] > 0:
+                        after_val = series.iloc[i]
+                        break
                 
-                # 后值：同样处理
-                after_end = min(len(series), end_idx + context_size)
-                after_segment = series.iloc[end_idx+1:after_end]
-                after_nonzero = after_segment[after_segment > 0]
-                
-                if len(after_nonzero) > 0:
-                    weights = np.exp(-np.arange(len(after_nonzero)) * 0.1)
-                    after_val = np.average(after_nonzero.iloc[:10], weights=weights[:10] if len(after_nonzero) >= 10 else weights[:len(after_nonzero)])
-                else:
+                # 如果找不到非零值，使用全局非零均值
+                if before_val is None:
+                    before_val = series[series > 0].mean() if (series > 0).any() else 10
+                if after_val is None:
                     after_val = before_val
                 
-                # 更自然的插值策略
+                # 简单线性插值，不添加复杂的周期性或噪声
                 segment_len = group_mask.sum()
-                
-                # 使用Sigmoid函数创建平滑过渡
-                t = np.linspace(-3, 3, segment_len)
-                sigmoid = 1 / (1 + np.exp(-t))
-                base_values = before_val + (after_val - before_val) * sigmoid
-                
-                # 添加周期性变化模拟真实波动
-                if segment_len > 30:  # 只对长段添加周期性
-                    # 模拟小时级周期
-                    hourly_cycle = np.sin(2 * np.pi * np.arange(segment_len) / 120) * min(before_val, after_val) * 0.1
-                    base_values += hourly_cycle
-                
-                # 添加适度随机噪声
-                noise_std = min(before_val, after_val) * 0.08  # 降低噪声强度
-                noise = np.random.normal(0, noise_std, segment_len)
-                
-                # 确保值为正且合理
-                new_values = np.maximum(0.5, base_values + noise)
+                new_values = np.linspace(before_val, after_val, segment_len) * 0.3  # 降低到30%，避免突兀
                 
                 series.loc[group_mask] = new_values
                 processed_segments += 1
         
-        print(f"    处理了 {processed_segments} 个长连续零值段")
+        print(f"    处理了 {processed_segments} 个异常长连续零值段")
         return series
     
-    # 3. 强力降低变异性 - 关键修改
-    def reduce_high_variation(series, target_cv=0.6):  # 降低目标到0.6
-        """强力降低过高变异性"""
-        print("  步骤3: 强力降低变异性...")
+    # 3. 温和的异常值处理 - 不强制改变变异系数
+    def handle_extreme_outliers_only(series):
+        """只处理极端异常值，保持数据的自然变异性"""
+        print("  步骤3: 处理极端异常值...")
         
-        current_cv = series.std() / series.mean()
-        print(f"    当前变异系数: {current_cv:.3f}")
-        
-        if current_cv > target_cv:
-            # 多重平滑策略
-            series_smooth = series.copy()
-            
-            # 第一步：移除极端异常值
-            Q1, Q3 = series_smooth.quantile([0.25, 0.75])
-            IQR = Q3 - Q1
-            if IQR > 0:
-                upper_bound = Q3 + 2.0 * IQR  # 更严格的异常值界限
-                lower_bound = max(0, Q1 - 1.5 * IQR)
-                series_smooth = series_smooth.clip(lower=lower_bound, upper=upper_bound)
-            
-            # 第二步：自适应强度平滑
-            if current_cv > 1.2:
-                window = 20  # 超强平滑
-                smoothing_ratio = 0.8
-            elif current_cv > 1.0:
-                window = 15  # 强平滑
-                smoothing_ratio = 0.7
-            else:
-                window = 10   # 中等平滑
-                smoothing_ratio = 0.6
-            
-            # 使用三角权重的移动平均（比高斯更平滑）
-            def triangular_weights(n):
-                if n % 2 == 1:
-                    center = n // 2
-                    weights = np.minimum(np.arange(n) + 1, np.arange(n, 0, -1))
-                else:
-                    weights = np.minimum(np.arange(n) + 1, np.arange(n, 0, -1))
-                return weights / weights.sum()
-            
-            weights = triangular_weights(window)
-            
-            # 应用加权平滑
-            smoothed = series_smooth.rolling(window=window, center=True, min_periods=1).apply(
-                lambda x: np.average(x, weights=weights[:len(x)]) if len(x) > 1 else x.iloc[0],
-                raw=False
-            )
-            
-            # 强制混合比例
-            series_reduced = smoothing_ratio * smoothed + (1 - smoothing_ratio) * series_smooth
-            
-            # 第三步：如果还是太高，应用对数变换
-            current_cv_after = series_reduced.std() / series_reduced.mean()
-            if current_cv_after > target_cv * 1.2:
-                print(f"    应用对数变换进一步降低变异性...")
-                # 对数变换
-                series_log = np.log1p(series_reduced)
-                # 重新缩放
-                series_scaled = (series_log - series_log.min()) / (series_log.max() - series_log.min())
-                series_reduced = series_reduced.mean() * (0.5 + series_scaled)  # 控制在合理范围
-            
-            new_cv = series_reduced.std() / series_reduced.mean()
-            print(f"    强力平滑后变异系数: {new_cv:.3f}")
-            
-            return series_reduced
-        
-        return series
-    
-    # 4. 增强异常值处理
-    def handle_outliers_smart(series):
-        """增强异常值处理"""
-        print("  步骤4: 增强异常值处理...")
-        
-        # 使用更严格的异常值检测
-        Q1 = series.quantile(0.20)  # 更严格的分位数
-        Q3 = series.quantile(0.80)
+        # 使用更宽松的异常值检测
+        Q1 = series.quantile(0.05)  # 使用更极端的分位数
+        Q3 = series.quantile(0.95)
         IQR = Q3 - Q1
         
-        # 更严格的异常值阈值
         if IQR > 0:
-            k = 1.5  # 更严格的系数
-            lower_bound = max(0.1, Q1 - k * IQR)
+            # 使用更宽松的倍数
+            k = 3.0  # 从1.5提高到3.0
+            lower_bound = max(0, Q1 - k * IQR)
             upper_bound = Q3 + k * IQR
         else:
-            # 如果IQR为0，使用更严格的标准差方法
+            # 使用标准差方法，但更宽松
             mean_val = series.mean()
             std_val = series.std()
-            lower_bound = max(0.1, mean_val - 2.0 * std_val)
-            upper_bound = mean_val + 2.0 * std_val
+            lower_bound = max(0, mean_val - 4.0 * std_val)  # 从2.0提高到4.0
+            upper_bound = mean_val + 4.0 * std_val
         
-        # 渐进式软截断
-        series_clipped = series.copy()
+        # 只处理真正的极端值
+        outlier_count = ((series < lower_bound) | (series > upper_bound)).sum()
         
-        # 处理上界异常值 - 渐进压缩
-        upper_mask = series > upper_bound
-        if upper_mask.any():
-            excess_ratio = (series[upper_mask] - upper_bound) / upper_bound
-            # 使用平方根函数压缩（比对数更温和）
-            compressed = upper_bound * (1 + np.sqrt(excess_ratio) * 0.3)
-            series_clipped.loc[upper_mask] = compressed
+        if outlier_count > 0:
+            print(f"    发现 {outlier_count} 个极端异常值")
+            # 使用clip进行硬截断，但阈值很宽松
+            series_clipped = series.clip(lower=lower_bound, upper=upper_bound)
+            return series_clipped
         
-        # 处理下界
-        series_clipped = series_clipped.clip(lower=lower_bound)
-        
-        return series_clipped
+        return series
     
-    # 5. 强化数值稳定性
-    def ensure_numerical_stability(series):
-        """强化数值稳定性"""
-        print("  步骤5: 强化数值稳定性...")
+    # 4. 确保基本的数值稳定性
+    def ensure_basic_stability(series):
+        """确保基本的数值稳定性，但不过度处理"""
+        print("  步骤4: 确保基本稳定性...")
         
         series_stable = series.copy()
         
-        # 避免完全相同的连续值 - 更强的处理
-        for i in range(1, len(series_stable)):
-            diff = abs(series_stable.iloc[i] - series_stable.iloc[i-1])
-            if diff < series_stable.iloc[i] * 0.001:  # 相对变化小于0.1%
-                # 添加相对变化而非绝对变化
-                relative_change = np.random.uniform(-0.01, 0.01)  # 1%的相对变化
-                series_stable.iloc[i] = max(0.1, series_stable.iloc[i] * (1 + relative_change))
+        # 确保非负值
+        if (series_stable < 0).any():
+            negative_count = (series_stable < 0).sum()
+            print(f"    发现 {negative_count} 个负值，设置为0")
+            series_stable = np.maximum(series_stable, 0)
         
-        # 确保最小值
-        series_stable = np.maximum(series_stable, 0.1)
-        
-        # 强制控制动态范围
-        max_val = series_stable.max()
-        min_val = series_stable.min()
-        dynamic_range = max_val / min_val
-        
-        if dynamic_range > 100:  # 更严格的动态范围控制
-            print(f"    强制控制动态范围: {dynamic_range:.1f} -> 100")
-            # 对高值进行平方根压缩
-            median_val = series_stable.median()
-            high_threshold = median_val * 5
-            high_mask = series_stable > high_threshold
+        # 只处理完全相同的长连续段（真正的数据错误）
+        same_value_segments = 0
+        i = 0
+        while i < len(series_stable) - 10:  # 只处理10个以上的相同值
+            current_val = series_stable.iloc[i]
+            same_count = 1
             
-            if high_mask.any():
-                excess = series_stable[high_mask] / high_threshold
-                series_stable.loc[high_mask] = high_threshold * np.sqrt(excess)
+            for j in range(i + 1, len(series_stable)):
+                if abs(series_stable.iloc[j] - current_val) < 1e-10:  # 完全相同
+                    same_count += 1
+                else:
+                    break
+            
+            # 只有连续10个以上完全相同的值才处理
+            if same_count >= 10:
+                # 添加很小的扰动
+                for k in range(i + 1, i + same_count):
+                    if k < len(series_stable):
+                        series_stable.iloc[k] += np.random.uniform(-0.01, 0.01)
+                same_value_segments += 1
+                i += same_count
+            else:
+                i += 1
+        
+        if same_value_segments > 0:
+            print(f"    处理了 {same_value_segments} 个长连续相同值段")
         
         return series_stable
     
-    # 执行所有处理步骤
+    # 执行处理步骤
     print("开始逐步处理:")
     
-    processed_values = df['kpi_value'].copy()
+    # 步骤1: 基础清理
+    processed_values = clean_basic_issues(processed_values)
     
-    # 步骤1: 数值清理
-    processed_values = clean_numerical_issues(processed_values)
+    # 步骤2: 温和零值处理
+    processed_values = handle_consecutive_zeros_moderate(processed_values, max_consecutive=60)
     
-    # 步骤2: 激进零值处理
-    processed_values = handle_consecutive_zeros_enhanced(processed_values, max_consecutive=15)
+    # 步骤3: 极端异常值处理
+    processed_values = handle_extreme_outliers_only(processed_values)
     
-    # 步骤3: 强力降低变异性
-    processed_values = reduce_high_variation(processed_values, target_cv=0.6)
+    # 步骤4: 基本稳定性
+    processed_values = ensure_basic_stability(processed_values)
     
-    # 步骤4: 增强异常值处理
-    processed_values = handle_outliers_smart(processed_values)
-    
-    # 步骤5: 强化数值稳定性
-    processed_values = ensure_numerical_stability(processed_values)
-    
-    # 最终安全检查
+    # 最终检查
     processed_values = processed_values.fillna(method='ffill').fillna(method='bfill')
-    processed_values = processed_values.fillna(processed_values.median())
-    processed_values = np.maximum(processed_values, 0.1)  # 确保最小值
+    if processed_values.isnull().any():
+        processed_values = processed_values.fillna(processed_values.median())
     
     # 更新DataFrame
     df['kpi_value'] = processed_values
     
-    # 最终统计和连续零值检查
+    # 最终统计
     final_stats = {
         'mean': df['kpi_value'].mean(),
         'std': df['kpi_value'].std(),
@@ -1308,50 +798,15 @@ def preprocess_for_koopman_30s_enhanced(df, spot_id=14207):
         'inf_count': np.isinf(df['kpi_value']).sum()
     }
     
-    # 检查最大连续零值
-    def check_max_consecutive_zeros(data):
-        zero_runs = []
-        current_run = 0
-        for value in data:
-            if value == 0:
-                current_run += 1
-            else:
-                if current_run > 0:
-                    zero_runs.append(current_run)
-                current_run = 0
-        if current_run > 0:
-            zero_runs.append(current_run)
-        return max(zero_runs) if zero_runs else 0
-    
-    final_max_consecutive = check_max_consecutive_zeros(df['kpi_value'])
-    
-    print(f"\n=== 强化处理结果对比 ===")
-    print(f"变异系数: {original_stats['cv']:.3f} -> {final_stats['cv']:.3f} (目标: <0.6)")
+    print(f"\n=== 温和处理结果对比 ===")
+    print(f"变异系数: {original_stats['cv']:.3f} -> {final_stats['cv']:.3f} (保持自然变异)")
     print(f"零值数量: {original_stats['zero_count']} -> {final_stats['zero_count']}")
-    print(f"最大连续零值: 120 -> {final_max_consecutive}")
     print(f"数据范围: [{original_stats['min']:.1f}, {original_stats['max']:.1f}] -> [{final_stats['min']:.1f}, {final_stats['max']:.1f}]")
-    print(f"动态范围比: {original_stats['max']/max(0.1, original_stats['min']):.1f} -> {final_stats['max']/final_stats['min']:.1f}")
+    print(f"NaN/Inf数量: {original_stats['nan_count']}/{original_stats['inf_count']} -> {final_stats['nan_count']}/{final_stats['inf_count']}")
     
-    # 成功判断标准
-    success_criteria = [
-        final_stats['cv'] < 0.8,
-        final_max_consecutive < 20,
-        final_stats['nan_count'] == 0,
-        final_stats['inf_count'] == 0,
-        final_stats['max']/final_stats['min'] < 200
-    ]
-    
-    if all(success_criteria):
-        print("✅ 强化处理完全成功！应该能彻底解决NaN问题")
-    elif sum(success_criteria) >= 4:
-        print("✅ 强化处理基本成功，大幅改善")
-    else:
-        print("⚠️ 强化处理有改善，但可能需要进一步调整序列长度")
-    
-    print(f"✅ 强化版Koopman预处理完成")
+    print("✅ 温和版预处理完成 - 保持了数据的自然特征")
     
     return df
-
 
 
 def get_spot_config(spot_id,his_hour,pred_hour):
@@ -1359,19 +814,19 @@ def get_spot_config(spot_id,his_hour,pred_hour):
     根据景点ID设置历史长度和预测长度
     """
     if spot_id in [14210,14211,14212,14213]:
-        freq = "10min"
+        freq = "10m"
         his_len = his_hour * 6
         pred_len = pred_hour * 6
     elif spot_id in [14207,14209]:
-        freq = "30sec"
+        freq = "30s"
         his_len = his_hour * 120
         pred_len = pred_hour * 120
     elif spot_id in [14208]:
-        freq = "1min"
+        freq = "1m"
         his_len = his_hour * 60
         pred_len = pred_hour * 60
     else:
-        freq = "5min"
+        freq = "5m"
         his_len = his_hour * 12
         pred_len = pred_hour * 12
     return freq, his_len, pred_len

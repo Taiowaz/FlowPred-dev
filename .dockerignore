@@ -1,0 +1,17 @@
+exper/
+exper_data/
+.git/
+.gitignore/
+__pycache__/
+.vscode/
+
+./other/
+src/evaluation/
+src/data_proc
+scripts/
+build/
+src/Loss/
+src/utils/utils_eva_db.py
+
+*.pid
+*.log

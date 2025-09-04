@@ -2,11 +2,11 @@ import pandas as pd
 import numpy as np
 from datetime import timedelta
 
-def calculate_daily_rmse_from_df(df: pd.DataFrame) -> float:
+def calculate_daily_mape_from_df(df: pd.DataFrame) -> float:
     """
-    以天为单位，从DataFrame计算数值偏差（RMSE）。
+    以天为单位，从DataFrame计算平均绝对百分比误差（MAPE）。
 
-    该函数根据评测方案，计算所有预测值与对应真实值之间的RMSE。
+    该函数根据评测方案，计算所有预测值与对应真实值之间的MAPE。
 
     Args:
         df: 一个包含三列的Pandas DataFrame:
@@ -15,7 +15,7 @@ def calculate_daily_rmse_from_df(df: pd.DataFrame) -> float:
             - 'real': 对应时间点的真实值。
 
     Returns:
-        一个浮点数，代表当天的日度RMSE值。值越小，预测效果越好。
+        一个浮点数，代表当天的日度MAPE值（百分比）。值越小，预测效果越好。
     """
     if not all(col in df.columns for col in ['time', 'pred', 'real']):
         raise ValueError("DataFrame必须包含 'time', 'pred', 和 'real' 列。")
@@ -24,13 +24,24 @@ def calculate_daily_rmse_from_df(df: pd.DataFrame) -> float:
     y_true = df['real']
     y_pred = df['pred']
 
-    # 计算RMSE
+    # 计算MAPE
     if len(y_true) == 0:
-        return 0.0  # 或者返回 np.nan，取决于业务需求
+        return 0.0
 
-    rmse = np.sqrt(np.mean((y_true - y_pred)**2))
+    # 避免除零错误，过滤掉真实值为0的情况
+    non_zero_mask = y_true != 0
+    if non_zero_mask.sum() == 0:
+        return 0.0  # 所有真实值都为0，无法计算百分比误差
     
-    return rmse
+    y_true_non_zero = y_true[non_zero_mask]
+    y_pred_non_zero = y_pred[non_zero_mask]
+    
+    # 计算平均绝对百分比误差
+    mape = np.mean(np.abs((y_true_non_zero - y_pred_non_zero) / y_true_non_zero))
+    
+    return mape
+
+
 
 def _find_peak_start_time(flow_series: pd.Series, window_size: int) -> pd.Timestamp:
     """辅助函数：找到流量峰值窗口的开始时间"""
@@ -99,40 +110,47 @@ def calculate_peak_time_deviation(df: pd.DataFrame, window_duration_min: int = 6
 
 
 
-def calculate_daily_stability(df: pd.DataFrame) -> float:
+def calculate_daily_stability_cv(df: pd.DataFrame) -> float:
     """
-    以天为单位，计算预测稳定性。
+    以天为单位，计算预测稳定性（变异系数形式）。
 
-    此函数完全遵循评测方案[cite: 3]。它通过以下步骤工作：
-    1. 按被预测的时间点('time')对数据进行分组。
-    2. 对每个时间点的所有预测值('pred')计算标准差(Standard Deviation)。
-       标准差衡量了对该点的多次预测的离散程度。
-    3. 计算这些标准差的日度平均值，作为最终的稳定性指标。
+    使用变异系数(CV = std/mean)来衡量稳定性，消除不同景点客流量级的影响。
+    变异系数是无量纲指标，便于跨景点比较。
 
-    一个低的值表示模型对未来各时间点的预测比较稳定，波动小。
+    计算步骤：
+    1. 按被预测的时间点('time')对数据进行分组
+    2. 对每个时间点计算预测值的变异系数(CV = std/mean)
+    3. 计算所有时间点变异系数的平均值
 
     Args:
         df: Pandas DataFrame，包含'time'和'pred'列。
 
     Returns:
-        一个浮点数，代表当天预测的平均稳定性。
+        一个浮点数，代表当天预测的平均变异系数（百分比）。值越小表示稳定性越好。
     """
     if not all(col in df.columns for col in ['time', 'pred']):
         raise ValueError("DataFrame必须包含 'time' 和 'pred' 列。")
 
     if df.empty:
         return np.nan
-        
-    # 按时间点分组，并计算每组预测值的标准差
-    # ddof=0 表示使用N进行除法，与方案中的公式保持一致（总体标准差）
-    stability_per_timeslice = df.groupby('time')['pred'].std(ddof=0)
     
-    # 计算这些标准差的平均值
-    # 对于只有一个预测的时间点，std结果是NaN，在求平均时忽略它们
-    daily_average_stability = stability_per_timeslice.mean()
+    def calculate_cv(group):
+        """计算单个时间点的变异系数"""
+        if len(group) <= 1:
+            return np.nan
+        mean_val = group.mean()
+        if mean_val == 0:
+            return np.nan  # 避免除零
+        std_val = group.std(ddof=0)
+        return (std_val / abs(mean_val)) # 转换为百分比
     
-    return daily_average_stability
-
+    # 按时间点分组，计算每组的变异系数
+    cv_per_timeslice = df.groupby('time')['pred'].apply(calculate_cv)
+    
+    # 计算所有时间点变异系数的平均值（忽略NaN）
+    daily_average_cv = cv_per_timeslice.mean()
+    
+    return daily_average_cv
 
 def calculate_average_trend_accuracy(df: pd.DataFrame, pred_len: int) -> float:
     """
@@ -238,18 +256,17 @@ def calculate_daily_volatility_ratio(df: pd.DataFrame) -> float:
 
 def evaluate_single_mode(res_path, pred_len=72):
     df = pd.read_csv(res_path)
-    numerical_deviation = calculate_daily_rmse_from_df(df)
+    numerical_deviation = calculate_daily_mape_from_df(df)
     peak_time = calculate_peak_time_deviation(df)
-    stability = calculate_daily_stability(df)
+    stability = calculate_daily_stability_cv(df)
     volatility = calculate_daily_volatility_ratio(df)
     trend_accuracy = calculate_average_trend_accuracy(df, pred_len)
     # 输出每个指标及其名称以及该指标怎么算是好的
-    print(f"数值偏差 (RMSE): {numerical_deviation:.4f} (越小越好)")
-    print(f"峰值时间偏差 (分钟): {peak_time:.4f} (越小越好)")
-    print(f"稳定性 (平均标准差): {stability:.4f} (越小越好)")
-    print(f"波动率 (VR): {volatility:.4f} (越接近1越好)")
-    print(f"趋势准确率 (平均相关系数): {trend_accuracy:.4f} (越接近1越好)")
-
+    print(f"数值偏差 (MAPE): {numerical_deviation:.2f}% (越小越好, 小于20%为良好)")
+    print(f"峰值时间偏差: {peak_time:.1f}分钟 (越小越好, 小于20分钟为良好)")
+    print(f"稳定性 (变异系数): {stability:.2f}% (越小越好, 小于10%为良好)")
+    print(f"波动率 (VR): {volatility:.3f} (越接近1越好, 0.95~1.05为良好)")
+    print(f"趋势准确率: {trend_accuracy:.3f} (越接近1越好, >0.85为良好)")
 
 def evaluate_comparison(mode0_path, mode1_path, pred_len=72):
     """比较两种模式的评估结果"""
@@ -259,25 +276,25 @@ def evaluate_comparison(mode0_path, mode1_path, pred_len=72):
     df1 = pd.read_csv(mode1_path)
     
     # 节假日指标
-    rmse_0 = calculate_daily_rmse_from_df(df0)
+    mape_0 = calculate_daily_mape_from_df(df0)
     peak_0 = calculate_peak_time_deviation(df0)
-    stability_0 = calculate_daily_stability(df0)
+    stability_0 = calculate_daily_stability_cv(df0)
     volatility_0 = calculate_daily_volatility_ratio(df0)
     trend_0 = calculate_average_trend_accuracy(df0, pred_len)
     
     # 工作日指标
-    rmse_1 = calculate_daily_rmse_from_df(df1)
+    mape_1 = calculate_daily_mape_from_df(df1)
     peak_1 = calculate_peak_time_deviation(df1)
-    stability_1 = calculate_daily_stability(df1)
+    stability_1 = calculate_daily_stability_cv(df1)
     volatility_1 = calculate_daily_volatility_ratio(df1)
     trend_1 = calculate_average_trend_accuracy(df1, pred_len)
     
-    # 仍然返回DataFrame以便后续使用
+    # 返回DataFrame以便后续使用
     comparison_df = pd.DataFrame({
-        '指标': ['数值偏差 (RMSE)', '峰值时间偏差 (分钟)', '稳定性 (平均标准差)', '波动率 (VR)', '趋势准确率 (平均相关系数)'],
-        '节假日': [rmse_0, peak_0, stability_0, volatility_0, trend_0],
-        '工作日': [rmse_1, peak_1, stability_1, volatility_1, trend_1],
-        '评价标准': ['越小越好,小于4000为较好', '越小越好，小于20较好', '越小越好，小于2500较好', '越接近1越好,0.95~1.05较好', '越接近1越好,0.85~1.15较好']
+        '指标': ['数值偏差 (MAPE)', '峰值时间偏差 (分钟)', '稳定性 (变异系数)', '波动率 (VR)', '趋势准确率 (相关系数)'],
+        '节假日': [f"{mape_0:.2f}", f"{peak_0:.1f}", f"{stability_0:.2f}", f"{volatility_0:.3f}", f"{trend_0:.3f}"],
+        '工作日': [f"{mape_1:.2f}", f"{peak_1:.1f}", f"{stability_1:.2f}", f"{volatility_1:.3f}", f"{trend_1:.3f}"],
+        '评价标准': ['越小越好, <0.15为良好', '越小越好, <20分钟为良好', '越小越好, <0.1为良好', '越接近1越好, 0.95~1.05为良好', '越接近1越好, >0.85为良好']
     })
     
     return comparison_df

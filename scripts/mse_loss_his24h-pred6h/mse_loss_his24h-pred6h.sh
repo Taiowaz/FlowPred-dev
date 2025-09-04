@@ -3,14 +3,14 @@
 run_python="/home/beihang/.conda/envs/koopa/bin/python"
 run_file="src/run.py"
 exper_base_dir="exper"
-exper_name="mse_loss" 
+exper_name=$(basename "$0" .sh)
 exper_data_base_dir="exper_data"
 data_multi_basedir="${exper_data_base_dir}/${exper_name}/train"
 his_hour=24
 pred_hour=6
-# spot_ids=("14100" "14102" "14103" "14105" "14107" "14108" "14114" "14115" "14116" "14120" "14124" "14125" "14126" "14127" "14129" "14137" "14141" "14144" "14145" "14205" "14207" "14208")
+spot_ids=("14100" "14102" "14103" "14105" "14107" "14108" "14114" "14115" "14116" "14120" "14124" "14125" "14126" "14127" "14129" "14137" "14141" "14144" "14145" "14205" "14208")
 # spot_ids=("14100" "14207")
-spot_ids=("14207")
+# spot_ids=("14207")
 
 # 日志函数
 log_info() {
@@ -72,9 +72,9 @@ log_info "创建实验目录: ${exper_dir}"
 mkdir -p ${exper_dir} 
 
 # 创建checkpoints文件夹
-checkpoints_dir="${exper_dir}/model"
-log_info "创建模型保存目录: ${checkpoints_dir}"
-mkdir -p ${checkpoints_dir}
+checkpoint_dir="${exper_dir}/checkpoint"
+log_info "创建模型保存目录: ${checkpoint_dir}"
+mkdir -p ${checkpoint_dir}
 
 # 创建maskspectrum文件夹
 mask_spectrum_dir="${exper_dir}/maskspectrum"
@@ -147,11 +147,12 @@ for spot_id in "${spot_ids[@]}"; do
         --mode ${mode} \
         --his_hour ${his_hour} \
         --pred_hour ${pred_hour} \
+        --learning_rate=0.00001 \
         --freq ${freq} \
         --seq_len ${his_len} \
         --label_len ${pred_len} \
         --pred_len ${pred_len} \
-        --checkpoints ${checkpoints_dir} \
+        --checkpoints ${checkpoint_dir} \
         --gpu "0" > ${log_savepath} 2>&1 &
     
     mode0_pid=$!
@@ -172,11 +173,12 @@ for spot_id in "${spot_ids[@]}"; do
         --mode ${mode} \
         --his_hour ${his_hour} \
         --pred_hour ${pred_hour} \
+        --learning_rate=0.00001 \
         --freq ${freq} \
         --seq_len ${his_len} \
         --label_len ${pred_len} \
         --pred_len ${pred_len} \
-        --checkpoints ${checkpoints_dir} \
+        --checkpoints ${checkpoint_dir} \
         --gpu "0" > ${log_savepath} 2>&1 &
     
     mode1_pid=$!

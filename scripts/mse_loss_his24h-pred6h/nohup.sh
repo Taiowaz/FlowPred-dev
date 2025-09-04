@@ -1,0 +1,1 @@
+nohup bash scripts/mse_loss_his24h-pred6h/mse_loss_his24h-pred6h.sh > train.log 2>&1 &

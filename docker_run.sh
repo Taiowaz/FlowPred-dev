@@ -1,17 +1,19 @@
-docker build -t flow-pred-gpu:v1.1 .
-# # debug
-# docker run -d \
-# 	--gpus all \
-# 	--name flow-pred-gpu39 \
-#     -v .:/app \
-# 	-p 5001:5001 \
-#       	flow-pred-gpu39:v1.1
-
-# release
+# 开发
+docker build -t flow-pred-gpu-dev .
 docker run -d \
 	--gpus all \
-	--name flow-pred-gpu \
-    -v ./maskspectrum:/app/maskspectrum \
-	-v ./modelbase:/app/modelbase \
-	-p 5002:5002 \
-      	flow-pred-gpu:v1.1
+	--name flow-pred-gpu-dev \
+    -v ./aux_data/maskspectrum:/app/aux_data/maskspectrum \
+	-v ./aux_data/checkpoint:/app/aux_data/checkpoint \
+	-p 5005:5005 \
+      	flow-pred-gpu-dev
+
+# 生产
+# docker build -t flow-pred-gpu .
+# docker run -d \
+# 	--gpus all \
+# 	--name flow-pred-gpu-dev \
+#     -v .aux_data/maskspectrum:/app/aux_data/maskspectrum \
+# 	-v .aux_data/checkpoint:/app/aux_data/checkpoint \
+# 	-p 5002:5002 \
+#       	flow-pred-gpu

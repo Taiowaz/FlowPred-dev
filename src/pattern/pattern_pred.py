@@ -2,35 +2,29 @@ import pandas as pd
 import numpy as np
 import holidays
 
-def pattern_prediction(df):
+def pattern_prediction(df, his_len):
     """
-    根据输入的 DataFrame 中前 288 条记录的 kpi_time 列的日期判断是工作日还是周末，进行编码。
+    根据输入的 DataFrame 中前 his_len 条记录的 kpi_time 列的日期判断是工作日还是周末，进行编码。
     0 代表大部分日期是节假日，1 代表大部分日期是工作日。
-
-    :param df: 输入的 DataFrame
-    :return: 编码结果，0 或 1
     """
-    # 确保 DataFrame 至少有 288 条记录
-    if len(df) < 288:
-        raise ValueError("输入的 DataFrame 记录数少于 288 条")
+    if len(df) < his_len:
+        raise ValueError(f"输入的 DataFrame 记录数少于 {his_len} 条")
     
-    # 截取前 288 条记录
-    subset_df = df.head(288)
+    # 截取前 his_len 条记录
+    df = df.head(his_len).copy()
     
     # 转换 kpi_time 为 datetime 类型
-    subset_df["kpi_time"] = pd.to_datetime(subset_df["kpi_time"])
+    df["kpi_time"] = pd.to_datetime(df["kpi_time"])
     
     # 创建中国节假日对象
     china_holidays = holidays.China()
-    # 判断每天是工作日（1）还是周末（0）
-    subset_df["is_weekday"] = subset_df["kpi_time"].dt.weekday.apply(lambda x: 0 if x.date() in china_holidays else 1)
     
-    # 统计工作日和周末的数量
-    weekday_count = np.sum(subset_df["is_weekday"])
-    weekend_count = 288 - weekday_count
+    # 判断工作日：不是节假日且不是周末
+    def is_workday(dt):
+        return (dt.date() not in china_holidays) and (dt.weekday() < 5)
     
-    # 根据数量判断编码
-    if weekday_count >= weekend_count:
-        return 1
-    else:
-        return 0
+    # 计算工作日数量
+    workday_count = df["kpi_time"].apply(is_workday).sum()
+    
+    # 返回编码：工作日多则返回1，否则返回0
+    return 1 if workday_count >= (his_len - workday_count) else 0
