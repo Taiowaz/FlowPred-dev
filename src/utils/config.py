@@ -162,6 +162,37 @@ def get_args():
         help="whether to use approximation for multistep K",
         default=False,
     )
+
+    # 天气数据集成参数 - Weather Data Integration
+    parser.add_argument(
+        "--use_weather", 
+        action="store_true", 
+        default=False, 
+        help="Enable weather data as auxiliary encoding features"
+    )
+    
+    parser.add_argument(
+        "--weather_path", 
+        type=str, 
+        default="aux_data/weather/weather_24_25_preprocessed.csv", 
+        help="Path to weather forecast data file"
+    )
+    
+    parser.add_argument(
+        "--weather_encoding_method", 
+        type=str, 
+        default="concat", 
+        choices=["concat", "mean", "weighted"],
+        help="How to combine weather with time encoding: concat/mean/weighted"
+    )
+    
+    parser.add_argument(
+        "--weather_feature_dim", 
+        type=int, 
+        default=12, 
+        help="Expected dimension of processed weather features"
+    )
+    
     #args = parser.parse_args()
         # Check if we're running under gunicorn
     if 'gunicorn' in sys.argv[0] or "ipykernel_launcher" in sys.argv[0]:

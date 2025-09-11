@@ -4,6 +4,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 from ..utils.timefeatures import time_features
+from ..utils.weatherfeatures import process_weather_data, create_weather_encoding_like_timeenc  # 新增导入
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -22,6 +23,10 @@ class Dataset_flow(Dataset):
         timeenc=0,
         freq="5min",
         datadir_flag=True,
+        weather_path=None,  # 新增天气数据路径
+        use_weather=False,  # 是否使用天气数据
+        weather_encoding_method="concat",  # 新增天气编码方法
+        weather_feature_dim=12,  # 新增天气特征维度
     ):
         # size [seq_len, label_len, pred_len]
         # info
@@ -46,6 +51,13 @@ class Dataset_flow(Dataset):
         self.scale = scale
         self.timeenc = timeenc
         self.freq = freq
+
+        # 天气数据相关参数
+        self.weather_path = weather_path
+        self.use_weather = use_weather
+        self.weather_encoding_method = weather_encoding_method
+        self.weather_feature_dim = weather_feature_dim
+        self.weather_extractor = None
 
         self.root_path = root_path
         self.data_path = data_path
@@ -138,6 +150,30 @@ class Dataset_flow(Dataset):
                     pd.to_datetime(df_stamp["date"].values), freq=self.freq
                 )
                 data_stamp = data_stamp.transpose(1, 0)
+
+            # 处理天气数据
+            if self.use_weather and self.weather_path:
+                try:
+                    weather_matrix, self.weather_extractor = process_weather_data(
+                        self.weather_path,
+                        segment['date'][border1:border2],
+                        freq=self.freq
+                    )
+                    
+                    # 确保天气数据长度与时间序列匹配
+                    if len(weather_matrix) == (border2 - border1):
+                        # 转换为类似时间编码的格式
+                        weather_encoding = create_weather_encoding_like_timeenc(
+                            weather_matrix, self.weather_encoding_method
+                        )
+                        # 将天气编码与时间编码合并
+                        data_stamp = np.concatenate([data_stamp, weather_encoding], axis=1)
+                    else:
+                        print(f"天气数据长度不匹配: {len(weather_matrix)} vs {border2 - border1}")
+                        
+                except Exception as e:
+                    print(f"处理天气数据时出错: {e}")
+
             all_data_x.append(data[border1:border2])
             all_data_y.append(data[border1:border2])
             all_data_stamp.append(data_stamp)
@@ -169,6 +205,7 @@ class Dataset_flow(Dataset):
         self.data_y = all_data_y if all_data_y else []
         self.data_stamp = all_data_stamp if all_data_stamp else []
 
+    # __getitem__, __len__, inverse_transform 方法保持不变
     def __getitem__(self, index):
         # 找到合适的分段和分段内的索引
         current_idx = index
@@ -200,6 +237,7 @@ class Dataset_flow(Dataset):
         return self.scaler.inverse_transform(data)
 
 
+# Dataset_Pred 类保持不变
 class Dataset_Pred(Dataset):
     def __init__(
         self,
